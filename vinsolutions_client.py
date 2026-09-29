@@ -13,6 +13,7 @@ from config import (
     VINSOLUTIONS_CLIENT_SECRET,
     VINSOLUTIONS_CONTENT_TYPE,
     VINSOLUTIONS_TOKEN_URL,
+    VIN_KEY_DIGITALSHOWROOM,
     VIN_KEY_LEADMANAGEMENT,
 )
 
@@ -181,3 +182,30 @@ async def add_interest_vehicles(lead_href: str, vehicles: List[dict]) -> None:
 async def add_trade_vehicles(lead_href: str, vehicles: List[dict]) -> None:
     await _lm_request("POST", "/vehicles/trade", V1, "add_trade_vehicles",
                       body={"lead": lead_href, "vehicles": vehicles})
+
+
+# --- Digital Showroom API (its own api_key) ------------------------------------
+
+async def update_lead(lead_id: int, dealer_id: int, user_id: int,
+                      note: Optional[str] = None, status_id: Optional[int] = None) -> None:
+    """Add a note (shows in the customer's notes/history) and/or change the lead status."""
+    body = {"UserId": user_id, "DealerId": dealer_id}
+    if note:
+        body["Note"] = note
+    if status_id:
+        body["LeadStatusId"] = status_id
+    headers = {
+        "api_key": VIN_KEY_DIGITALSHOWROOM,
+        "x-api-key": VIN_KEY_DIGITALSHOWROOM,
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {await _access_token()}",
+    }
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
+        response = await client.put(
+            f"{VINSOLUTIONS_BASE_URL}/gateway/v1/lead/{lead_id}",
+            headers=headers,
+            content=json.dumps(body),
+        )
+    if response.status_code >= 400:
+        raise VinSolutionsError(response.status_code, response.text, "update_lead")

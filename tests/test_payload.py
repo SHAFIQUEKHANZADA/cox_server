@@ -104,7 +104,11 @@ def _fake_crm(monkeypatch, contacts, leads, interests=(), trades=()):
     monkeypatch.setattr(vs, "interest_vehicles", interest)
     monkeypatch.setattr(vs, "trade_vehicles", trade)
     monkeypatch.setattr(vs, "add_interest_vehicles", add_i)
+    async def update(lead_id, dealer, user, note=None, status_id=None):
+        posted.setdefault("update", []).append({"note": note, "status_id": status_id})
+
     monkeypatch.setattr(vs, "add_trade_vehicles", add_t)
+    monkeypatch.setattr(vs, "update_lead", update)
     return posted
 
 
@@ -131,18 +135,44 @@ def test_household_member_and_old_or_service_leads_are_ignored(monkeypatch):
     assert asyncio.run(routes.find_recent_lead(req, 6082, 29668)) is None
 
 
-def test_only_new_vehicles_are_added_to_existing_lead(monkeypatch):
+def test_only_new_vehicles_are_added_and_the_call_is_noted(monkeypatch):
     posted = _fake_crm(monkeypatch, [], {},
                        interests=[{"year": 2025, "make": "Honda", "model": "CR-V"}],
                        trades=[])
     req = LeadRequest(first_name="Test", phone="2135550142", vehicle_make="Honda",
                       vehicle_model="CR-V", trade_make="Toyota", trade_model="Camry",
-                      trade_mileage=50000, notes="Wants Saturday")
-    result = asyncio.run(routes.add_to_existing_lead(_lead(10, 1), req))
+                      trade_mileage=50000, notes="Wants Saturday",
+                      appointment_request="Sat Oct 3, 11 AM")
+    result = asyncio.run(routes.add_to_existing_lead(_lead(10, 1), req, 6082, 29668))
     assert posted["interest"] == []  # CR-V already on the lead
     assert posted["trade"][0][0]["model"] == "Camry"
-    assert posted["trade"][0][0]["description"] == "Wants Saturday"
-    assert result == {"added": {"vehicles": 0, "trades": 1}, "unsaved_notes": None}
+    [update] = posted["update"]
+    assert update["status_id"] == 16  # Set appointment
+    assert update["note"] == ("Customer called back (Esther, AI). Sales appointment set: "
+                              "Sat Oct 3, 11 AM. Vehicle: Honda CR-V. "
+                              "Trade-in: Toyota Camry (50,000 mi). Notes: Wants Saturday")
+    assert result == {"added": {"vehicles": 0, "trades": 1},
+                      "note_saved": True, "appointment_set": True}
+
+
+def test_no_appointment_means_note_only(monkeypatch):
+    posted = _fake_crm(monkeypatch, [], {})
+    req = LeadRequest(first_name="Test", phone="2135550142", notes="Just asking about hours")
+    asyncio.run(routes.add_to_existing_lead(_lead(10, 1), req, 6082, 29668))
+    assert posted["update"] == [{"note": "Customer called back (Esther, AI). "
+                                         "Notes: Just asking about hours", "status_id": None}]
+
+
+def test_failed_note_is_returned_not_raised(monkeypatch):
+    _fake_crm(monkeypatch, [], {})
+
+    async def boom(*a, **k):
+        raise vs.VinSolutionsError(401, "denied", "update_lead")
+
+    monkeypatch.setattr(vs, "update_lead", boom)
+    req = LeadRequest(first_name="Test", phone="2135550142", appointment_request="Mon 5 PM")
+    result = asyncio.run(routes.add_to_existing_lead(_lead(10, 1), req, 6082, 29668))
+    assert result["note_saved"] is False and "Mon 5 PM" in result["unsaved_notes"]
 
 
 def test_spoken_values_never_reject_the_lead():

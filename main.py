@@ -10,6 +10,7 @@ from config import (
     VINSOLUTIONS_CLIENT_SECRET,
     VINSOLUTIONS_DEALER_ID,
     VINSOLUTIONS_TOKEN_URL,
+    VIN_KEY_DIGITALSHOWROOM,
     VIN_KEY_LEADMANAGEMENT,
 )
 from routes import router
@@ -39,6 +40,7 @@ def health():
             "VINSOLUTIONS_DEALER_ID": VINSOLUTIONS_DEALER_ID,
             "CONNECTOR_API_KEY": CONNECTOR_API_KEY,
             "VIN_KEY_LEADMANAGEMENT": VIN_KEY_LEADMANAGEMENT,
+            "VIN_KEY_DIGITALSHOWROOM": VIN_KEY_DIGITALSHOWROOM,
         }.items()
         if not value
     ]

@@ -1,9 +1,10 @@
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 import vinsolutions_client as vs
@@ -146,6 +147,8 @@ def build_lead_payload(req: LeadRequest, reference: str) -> List[dict]:
 
 # Existing leads of these types are not sales conversations.
 NON_SALES_LEAD_TYPES = {"SERVICE", "PARTS_ORDER"}
+# VinSolutions LeadStatusId 16 = "Set appointment".
+SET_APPOINTMENT_STATUS = 16
 
 
 def _norm(value) -> str:
@@ -193,13 +196,55 @@ def _clean(d: dict) -> dict:
     return {k: v for k, v in d.items() if v not in (None, "")}
 
 
-async def add_to_existing_lead(lead: dict, req: LeadRequest) -> dict:
-    """Add only what the lead doesn't already have: the wanted vehicle and the trade-in."""
+def call_note(req: LeadRequest, existing: bool) -> str:
+    """One CRM note summarising the call, in the words a salesperson scans for."""
+    wanted = " ".join(str(p) for p in [req.vehicle_year, req.vehicle_make, req.vehicle_model,
+                                        req.vehicle_trim] if p) or req.vehicle_of_interest
+    trade = " ".join(str(p) for p in [req.trade_year, req.trade_make, req.trade_model] if p)
+    if trade and req.trade_mileage:
+        trade += f" ({req.trade_mileage:,} mi)"
+    parts = [
+        "Customer called back (Esther, AI)." if existing else "Call handled by Esther (AI).",
+        f"Sales appointment set: {req.appointment_request}." if req.appointment_request else None,
+        f"Vehicle: {wanted}" + (f" ({req.new_or_used})" if req.new_or_used else "") + "."
+        if wanted else None,
+        f"Trade-in: {trade}." if trade else None,
+        f"Notes: {req.notes}" if req.notes else None,
+    ]
+    return " ".join(p for p in parts if p)
+
+
+async def record_on_lead(lead_id: int, req: LeadRequest, dealer_id: int, user_id: int,
+                         existing: bool) -> dict:
+    """Add the call note and, when an appointment was booked, mark the lead Set Appointment."""
+    note = call_note(req, existing)
+    try:
+        await vs.update_lead(lead_id, dealer_id, user_id, note=note,
+                             status_id=SET_APPOINTMENT_STATUS if req.appointment_request else None)
+        return {"note_saved": True, "appointment_set": bool(req.appointment_request)}
+    except Exception as exc:  # noqa: BLE001
+        log.warning("VinSolutions note/status update failed for lead %s: %s", lead_id, exc)
+        return {"note_saved": False, "appointment_set": False, "unsaved_notes": note}
+
+
+async def finish_new_lead(reference: str, req: LeadRequest, dealer_id: int, user_id: int) -> None:
+    """After the caller has hung up: wait for Cox to ingest the lead, then record the appointment."""
+    for _ in range(18):  # ~90 seconds
+        await asyncio.sleep(5)
+        try:
+            association = await vs.lead_association(REFERENCE_KEY, reference)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("VinSolutions lead lookup failed for %s: %s", reference, exc)
+            continue
+        if association and association.get("leadId"):
+            await record_on_lead(association["leadId"], req, dealer_id, user_id, existing=False)
+            return
+    log.warning("VinSolutions lead %s not ingested in time; appointment status not set", reference)
+
+
+async def add_to_existing_lead(lead: dict, req: LeadRequest, dealer_id: int, user_id: int) -> dict:
+    """Add only what the lead doesn't already have, then note the call on it."""
     lead_id, href = lead["leadId"], lead["href"]
-    notes = " | ".join(p for p in [
-        req.vehicle_of_interest, req.notes,
-        f"Appointment request: {req.appointment_request}" if req.appointment_request else None,
-    ] if p) or None
     added = {"vehicles": 0, "trades": 0}
 
     if req.vehicle_make or req.vehicle_model or req.vin:
@@ -211,23 +256,19 @@ async def add_to_existing_lead(lead: dict, req: LeadRequest) -> dict:
                 "trim": req.vehicle_trim, "vin": req.vin,
                 "inventoryType": {"new": "NEW", "used": "USED",
                                   "certified": "CERTIFIEDPREOWNED"}.get(status, "UNKNOWN"),
-                # The API has no lead notes, so the call notes ride on the vehicle.
-                "description": notes,
             })])
             added["vehicles"] = 1
-            notes = None
 
     if req.trade_make or req.trade_model:
         if not any(_same_vehicle(t, req.trade_year, req.trade_make, req.trade_model)
                    for t in await vs.trade_vehicles(lead_id)):
             await vs.add_trade_vehicles(href, [_clean({
                 "year": req.trade_year, "make": req.trade_make, "model": req.trade_model,
-                "mileage": req.trade_mileage, "description": notes,
+                "mileage": req.trade_mileage,
             })])
             added["trades"] = 1
-            notes = None
 
-    return {"added": added, "unsaved_notes": notes}
+    return {"added": added, **await record_on_lead(lead_id, req, dealer_id, user_id, existing=True)}
 
 
 def _authorized(api_key: Optional[str]) -> bool:
@@ -235,7 +276,8 @@ def _authorized(api_key: Optional[str]) -> bool:
 
 
 @router.post("/submit-lead")
-async def submit_lead(req: LeadRequest, x_connector_key: Optional[str] = Header(None)):
+async def submit_lead(req: LeadRequest, background: BackgroundTasks,
+                      x_connector_key: Optional[str] = Header(None)):
     if not _authorized(x_connector_key):
         raise HTTPException(status_code=401, detail="Invalid connector key")
 
@@ -246,7 +288,7 @@ async def submit_lead(req: LeadRequest, x_connector_key: Optional[str] = Header(
         try:
             lead = await find_recent_lead(req, dealer_id, user_id)
             if lead:
-                result = await add_to_existing_lead(lead, req)
+                result = await add_to_existing_lead(lead, req, dealer_id, user_id)
                 return {
                     "success": True,
                     "existing_lead": True,
@@ -270,6 +312,9 @@ async def submit_lead(req: LeadRequest, x_connector_key: Optional[str] = Header(
             "message": "The lead could not be submitted. Route the lead to a human.",
             "status": exc.status,
         }
+
+    if req.appointment_request:
+        background.add_task(finish_new_lead, reference, req, dealer_id, user_id)
 
     # Reply as soon as Cox accepts the lead: the caller is on the line, and the
     # CRM leadId only exists once ingestion finishes (usually within ~10s).

@@ -31,6 +31,8 @@ VINSOLUTIONS_CONTENT_TYPE = os.getenv(
 CONNECTOR_API_KEY = os.getenv("CONNECTOR_API_KEY", "").strip()
 # Lead Management (contact search, existing leads, vehicles) has its own key.
 VIN_KEY_LEADMANAGEMENT = os.getenv("VIN_KEY_LEADMANAGEMENT", "").strip()
+# Digital Showroom (lead notes, lead status) has its own key too.
+VIN_KEY_DIGITALSHOWROOM = os.getenv("VIN_KEY_DIGITALSHOWROOM", "").strip()
 # A caller with an open lead newer than this gets their details added to it
 # instead of a second lead.
 RECENT_LEAD_DAYS = int(os.getenv("RECENT_LEAD_DAYS", "30"))
