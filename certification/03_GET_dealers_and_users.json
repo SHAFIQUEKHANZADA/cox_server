@@ -1,0 +1,9 @@
+{
+  "description": "Setup calls: list the dealerships our application can access, and the active users at a dealership.",
+  "requests": [
+    { "method": "GET", "url": "https://integration.api.vinsolutions.com/gateway/v1/organization/dealers",
+      "headers": { "Authorization": "Bearer {access_token}", "api_key": "{api_key}", "Accept": "application/vnd.coxauto.v1+json" } },
+    { "method": "GET", "url": "https://integration.api.vinsolutions.com/gateway/v1/tenant/user?dealerId=6082",
+      "headers": { "Authorization": "Bearer {access_token}", "api_key": "{api_key}", "Accept": "application/vnd.coxauto.v1+json" } }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "description": "Confirm the lead was ingested and retrieve its CRM leadId / customerId using our referenceId.",
+  "method": "GET",
+  "url": "https://integration.api.vinsolutions.com/leadAssociations?ReferenceIdKey=zenvykRef&ReferenceIdValue=zv-e5241b9a50c944f2",
+  "headers": {
+    "Authorization": "Bearer {access_token}",
+    "api_key": "{lead_submissions_api_key}",
+    "Accept": "application/vnd.coxauto.v1+json"
+  },
+  "result": "200 OK - {\"leadId\": 2091427994, \"customerId\": 1453048119, \"dealerId\": 6082}"
+}

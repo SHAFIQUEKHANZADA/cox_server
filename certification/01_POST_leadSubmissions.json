@@ -1,0 +1,38 @@
+{
+  "description": "Create a sales lead from a caller who wants to buy a vehicle and has a trade-in. Sent when our AI agent (Esther) captures a sales inquiry on a phone call.",
+  "method": "POST",
+  "url": "https://integration.api.vinsolutions.com/leadSubmissions",
+  "headers": {
+    "Authorization": "Bearer {access_token}",
+    "api_key": "{lead_submissions_api_key}",
+    "Content-Type": "application/vnd.coxauto.v2+json",
+    "Accept": "application/vnd.coxauto.v2+json"
+  },
+  "body": [
+    {
+      "dealerId": 6082,
+      "leadType": "internet",
+      "opportunityType": "sales",
+      "leadProvider": { "name": "Zenvyk AI", "service": "Voice Agent" },
+      "referenceIds": { "zenvykRef": "zv-e5241b9a50c944f2" },
+      "traits": { "customerInitiated": true },
+      "customer": {
+        "comment": "TEST LEAD - Zenvyk connector test, please ignore | Appointment request: Saturday morning test drive",
+        "contact": {
+          "names": [
+            { "part": "first", "type": "individual", "value": "Test" },
+            { "part": "last", "type": "individual", "value": "Zenvyk-Connector" }
+          ],
+          "emails": [ { "preferredContact": true, "value": "test+vin2@zenvyk.com" } ],
+          "mobilePhone": "2135550143"
+        }
+      },
+      "vehicles": [
+        { "interest": "buy", "status": "new", "year": 2026, "make": "Honda", "model": "Accord" },
+        { "interest": "trade-in", "status": "used", "year": 2019, "make": "Honda", "model": "Civic",
+          "odometer": { "statusModel": "unknown", "value": 64000 } }
+      ]
+    }
+  ],
+  "result": "200 OK - created leadId 2091427994, customerId 1453048119 at dealer 6082"
+}
