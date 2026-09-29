@@ -143,3 +143,11 @@ def test_only_new_vehicles_are_added_to_existing_lead(monkeypatch):
     assert posted["trade"][0][0]["model"] == "Camry"
     assert posted["trade"][0][0]["description"] == "Wants Saturday"
     assert result == {"added": {"vehicles": 0, "trades": 1}, "unsaved_notes": None}
+
+
+def test_spoken_values_never_reject_the_lead():
+    req = LeadRequest(first_name="Sam", phone="2135550100", vehicle_year="twenty twenty-six",
+                      trade_year="2018", trade_mileage="61,000 miles", trade_in="Yes",
+                      interest="Trade in", dealer_id="")
+    assert (req.vehicle_year, req.trade_year, req.trade_mileage) == (None, 2018, 61000)
+    assert req.trade_in is True and req.interest == "trade-in" and req.dealer_id is None

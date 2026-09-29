@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 import vinsolutions_client as vs
 from config import (
@@ -53,6 +53,30 @@ class LeadRequest(BaseModel):
     dealer_id: Optional[int] = None
     # CRM user the contact search runs as (required by Cox).
     user_id: Optional[int] = None
+
+    # The voice agent fills these from speech ("61,000", "yes", "Trade in"):
+    # coerce what we can and drop the rest, so a lead is never rejected over a field.
+    @field_validator("vehicle_year", "trade_year", "trade_mileage", "dealer_id", "user_id",
+                     mode="before")
+    @classmethod
+    def _loose_int(cls, value):
+        digits = "".join(ch for ch in str(value or "") if ch.isdigit())
+        return int(digits) if digits else None
+
+    @field_validator("trade_in", mode="before")
+    @classmethod
+    def _loose_bool(cls, value):
+        text = _norm(value)
+        if text in {"true", "yes", "y", "1"}:
+            return True
+        if text in {"false", "no", "n", "0"}:
+            return False
+        return None
+
+    @field_validator("interest", mode="before")
+    @classmethod
+    def _loose_interest(cls, value):
+        return _norm(value).replace(" ", "-").replace("tradein", "trade-in") or "buy"
 
 
 def _digits(phone: str) -> str:
